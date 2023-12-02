@@ -41,7 +41,8 @@ fit |>
 ## Bootstrap
 ### Estimate log($\hat{\beta_1}$ * $\hat{\beta_2}$)
 ```{r}
-weather_df |> 
+log_result = 
+  weather_df |> 
   modelr::bootstrap(n = 5000) |> 
   mutate(
     models = map(strap, \(df) lm(tmax ~ tmin + prcp, data = df) ),
@@ -54,7 +55,16 @@ weather_df |>
   select(beta_1, beta_2) |>
   mutate_all(~c(.[!is.na(.)], .[is.na(.)])) |>
   na.omit() |>
-  mutate(log_beta = log(beta_1 * beta_2)) |>
+  mutate(log_beta = log(beta_1 * beta_2))
+
+##  95% CI
+log_result |>
+  summarize(
+    ci_lower = quantile(log_beta, 0.025, na.rm = TRUE), 
+    ci_upper = quantile(log_beta, 0.975, na.rm = TRUE))
+
+## Distribution of the estimator
+log_result |>
   ggplot(aes(x = log_beta)) + geom_density()
 
 ```
@@ -62,13 +72,23 @@ weather_df |>
 
 ### Estimate \( r^2 \)
 ```{r}
-weather_df |> 
+result_r_square = 
+  weather_df |> 
   modelr::bootstrap(n = 5000) |> 
   mutate(
     models = map(strap, \(df) lm(tmax ~ tmin + prcp, data = df) ),
     results = map(models, broom::glance)) |> 
   select(-strap, -models) |> 
-  unnest(results) |>
+  unnest(results)
+
+## 95% CI
+result_r_square |>
+  summarize(
+    ci_lower = quantile(r.squared, 0.025), 
+    ci_upper = quantile(r.squared, 0.975))
+
+## Distribution of the estimator
+result_r_square |>
   ggplot(aes(x = r.squared)) + geom_density()
 ```
 
