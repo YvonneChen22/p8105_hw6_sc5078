@@ -7,8 +7,10 @@ output: github_document
 ```{r setup, include=TRUE}
 knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
-library(dplyr)
 set.seed(1)
+library(modelr)
+library(mgcv)
+library(ggplot2)
 
 ```
 
@@ -68,6 +70,7 @@ log_result |>
   ggplot(aes(x = log_beta)) + geom_density()
 
 ```
+The distribution of estimator log($\hat{\beta_1}$ * $\hat{\beta_2}$) is left-skewed, so most of estimated log($\hat{\beta_1}$ * $\hat{\beta_2}$) are medium/large, with a few estimated log($\hat{\beta_1}$ * $\hat{\beta_2}$) that are much smaller than the rest. Peak of estimator log($\hat{\beta_1}$ * $\hat{\beta_2}$) is around -5.8.
 
 
 ### Estimate \( r^2 \)
@@ -91,5 +94,113 @@ result_r_square |>
 result_r_square |>
   ggplot(aes(x = r.squared)) + geom_density()
 ```
+The distribution of estimator \( r^2 \) is left-skewed, so most of estimated \( r^2 \) are medium/large, with a few estimated \( r^2 \) that are much smaller than the rest. Peak of estimator \( r^2 \) is around 0.913.
+
+# Problem 3
+Import dataset
+```{r}
+birthweight = read.csv("./birthweight.csv") |>
+  janitor::clean_names() |>
+  mutate(
+    babysex = 
+      case_match(
+        babysex, 
+        1 ~ "male", 
+        2 ~ "female"), 
+    babysex = as.factor(babysex),
+    frace = 
+      case_match(
+        frace, 
+        1 ~ "White", 
+        2 ~ "Black",
+        3 ~ "Asian",
+        4 ~ "Puerto Rican",
+        8 ~ "Other",
+        9 ~ "Unknown"),
+    frace = as.factor(frace),
+    malform = 
+      case_match(
+        malform, 
+        0 ~ "absent", 
+        1 ~ "present"), 
+    malform = as.factor(malform),
+    mrace = 
+      case_match(
+        mrace, 
+        1 ~ "White", 
+        2 ~ "Black",
+        3 ~ "Asian",
+        4 ~ "Puerto Rican",
+        8 ~ "Other",
+        9 ~ "Unknown"),
+    mrace = as.factor(mrace))
+
+```
+
+## Model 1
+### Propose a regression model
+```{r}
+model1 = lm(bwt ~ . , data = birthweight)
+
+# Perform stepwise regression
+step_model1 <- step(model1)
+```
+According to stepwise model selection process, my model is bwt ~ babysex + bhead + blength + delwt + fincome + gaweeks + mheight + mrace + parity + ppwt + smoken.
+
+### model residuals against fitted values
+```{r}
+birthweight |> 
+  modelr::add_residuals(step_model1, var = "residuals") |> 
+  modelr::add_predictions(step_model1, var = "fitted_values") |>
+  ggplot(aes(x = fitted_values, y = residuals)) +
+  geom_point() +
+  geom_smooth(method = "loess", se = FALSE) +
+  labs(title = "Residuals vs Fitted Values", x = "Fitted Values", y = "Residuals")
+
+```
+
+## Model 2
+```{r}
+model2 = lm(bwt ~ blength + gaweeks, data = birthweight)
+```
+
+## Model 3
+```{r}
+model3 = lm(bwt ~ bhead * blength * babysex , data = birthweight)
+```
+
+## cross-validated prediction error
+```{r}
+cv_df =
+  crossv_mc(birthweight, 100) |> 
+  mutate(
+    train = map(train, as_tibble),
+    test = map(test, as_tibble))
+
+cv_df = 
+  cv_df |> 
+  mutate(
+    step_model1  = map(train, \(df) lm(bwt ~ babysex + bhead + blength + delwt + fincome + gaweeks + mheight + mrace + parity + ppwt + smoken, data = df)),
+    model2     = map(train, \(df) lm(bwt ~ blength + gaweeks, data = df)),
+    model3  = map(train, \(df) lm(bwt ~ bhead * blength * babysex , data = df))) |> 
+  mutate(
+    rmse_model1 = map2_dbl(step_model1, test, \(mod, df) rmse(model = mod, data = df)),
+    rmse_model2    = map2_dbl(model2, test, \(mod, df) rmse(model = mod, data = df)),
+    rmse_model3 = map2_dbl(model3, test, \(mod, df) rmse(model = mod, data = df)))
+
+
+cv_df |> 
+  select(starts_with("rmse")) |>
+  pivot_longer(
+    everything(),
+    names_to = "model", 
+    values_to = "rmse",
+    names_prefix = "rmse_") |> 
+  mutate(model = fct_inorder(model)) |> 
+  ggplot(aes(x = model, y = rmse)) + geom_violin()
+```
+Model 2 only consider main effect, so it has highest error, Model 3 only consider three covariates, head circumference, length, sex, and all interactions, so it has the second highest error. My model has more covariates and has the lowest error.
+
+
 
 
